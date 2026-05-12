@@ -1,0 +1,506 @@
+name: Build APK
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Generate project files
+      run: |
+        # Xóa thư mục lỗi
+        rm -rf appapp
+
+        # Tạo cấu trúc thư mục
+        mkdir -p app/src/main/java/com/lockgesture
+        mkdir -p app/src/main/res/layout
+        mkdir -p app/src/main/res/values
+        mkdir -p app/src/main/res/xml
+        mkdir -p app/src/main/res/drawable
+
+        # gradle wrapper
+        mkdir -p gradle/wrapper
+        cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+        distributionBase=GRADLE_USER_HOME
+        distributionPath=wrapper/dists
+        distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
+        zipStoreBase=GRADLE_USER_HOME
+        zipStorePath=wrapper/dists
+        EOF
+
+        # gradlew
+        cat > gradlew << 'GRADLEW'
+        #!/bin/sh
+        exec gradle "$@"
+        GRADLEW
+        chmod +x gradlew
+
+        # AndroidManifest.xml
+        cat > app/src/main/AndroidManifest.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+            <uses-permission android:name="android.permission.CAMERA"/>
+            <uses-permission android:name="android.permission.FLASHLIGHT"/>
+            <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+            <application
+                android:allowBackup="true"
+                android:label="LockGesture"
+                android:theme="@style/Theme.LockGesture">
+
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN"/>
+                        <category android:name="android.intent.category.LAUNCHER"/>
+                    </intent-filter>
+                </activity>
+
+                <service
+                    android:name=".OverlayService"
+                    android:foregroundServiceType="specialUse"
+                    android:exported="false"/>
+
+                <service
+                    android:name=".GestureAccessibilityService"
+                    android:exported="true"
+                    android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                    <intent-filter>
+                        <action android:name="android.accessibilityservice.AccessibilityService"/>
+                    </intent-filter>
+                    <meta-data
+                        android:name="android.accessibilityservice"
+                        android:resource="@xml/accessibility_service_config"/>
+                </service>
+
+                <receiver
+                    android:name=".BootReceiver"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                    </intent-filter>
+                </receiver>
+
+            </application>
+        </manifest>
+        EOF
+
+        # accessibility config
+        cat > app/src/main/res/xml/accessibility_service_config.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+            android:accessibilityEventTypes="typeAllMask"
+            android:accessibilityFlags="flagDefault"
+            android:canPerformGestures="true"
+            android:description="@string/accessibility_description"
+            android:notificationTimeout="100"
+            android:settingsActivity=".MainActivity"/>
+        EOF
+
+        # strings
+        cat > app/src/main/res/values/strings.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <string name="app_name">LockGesture</string>
+            <string name="accessibility_description">LockGesture cần trợ năng để thực hiện các hành động trên màn hình khoá</string>
+        </resources>
+        EOF
+
+        # themes
+        cat > app/src/main/res/values/themes.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <style name="Theme.LockGesture" parent="Theme.MaterialComponents.DayNight.DarkActionBar"/>
+        </resources>
+        EOF
+
+        # layout main
+        cat > app/src/main/res/layout/activity_main.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:background="#1a1a2e">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="LockGesture"
+                android:textSize="28sp"
+                android:textColor="#e0e0e0"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Gesture overlay cho màn hình khoá"
+                android:textSize="14sp"
+                android:textColor="#888"
+                android:layout_marginBottom="24dp"/>
+
+            <Button
+                android:id="@+id/btnOverlayPermission"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="1. Cấp quyền Overlay"
+                android:layout_marginBottom="12dp"/>
+
+            <Button
+                android:id="@+id/btnAccessibility"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="2. Bật Trợ năng"
+                android:layout_marginBottom="12dp"/>
+
+            <Button
+                android:id="@+id/btnToggleService"
+                android:id="@+id/btnToggleService"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="3. BẬT OVERLAY"
+                android:backgroundTint="#4CAF50"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="GÁN GESTURE"
+                android:textColor="#888"
+                android:textSize="12sp"
+                android:layout_marginBottom="12dp"/>
+
+            <include layout="@layout/gesture_row" android:id="@+id/rowDoubleTap"/>
+            <include layout="@layout/gesture_row" android:id="@+id/rowLongPress"/>
+            <include layout="@layout/gesture_row" android:id="@+id/rowSwipeUp"/>
+            <include layout="@layout/gesture_row" android:id="@+id/rowSwipeDown"/>
+            <include layout="@layout/gesture_row" android:id="@+id/rowSwipeLeft"/>
+            <include layout="@layout/gesture_row" android:id="@+id/rowSwipeRight"/>
+
+        </LinearLayout>
+        EOF
+
+        # layout gesture row
+        cat > app/src/main/res/layout/gesture_row.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvGestureName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#e0e0e0"
+                android:gravity="center_vertical"
+                android:text="Double Tap"/>
+
+            <Spinner
+                android:id="@+id/spinnerAction"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:entries="@array/actions"/>
+
+        </LinearLayout>
+        EOF
+
+        # arrays
+        cat > app/src/main/res/values/arrays.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+            <string-array name="actions">
+                <item>Không làm gì</item>
+                <item>Tắt màn hình</item>
+                <item>Mở Camera</item>
+                <item>Bật/Tắt Flash</item>
+            </string-array>
+        </resources>
+        EOF
+
+        # MainActivity.kt
+        cat > app/src/main/java/com/lockgesture/MainActivity.kt << 'EOF'
+        package com.lockgesture
+
+        import android.content.Intent
+        import android.net.Uri
+        import android.os.Bundle
+        import android.provider.Settings
+        import android.widget.Button
+        import android.widget.Spinner
+        import android.widget.TextView
+        import androidx.appcompat.app.AppCompatActivity
+
+        class MainActivity : AppCompatActivity() {
+
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContentView(R.layout.activity_main)
+
+                val prefs = getSharedPreferences("gestures", MODE_PRIVATE)
+
+                // Setup gesture rows
+                val gestures = listOf(
+                    Triple(R.id.rowDoubleTap, "Double Tap", "double_tap"),
+                    Triple(R.id.rowLongPress, "Long Press", "long_press"),
+                    Triple(R.id.rowSwipeUp, "Swipe Up", "swipe_up"),
+                    Triple(R.id.rowSwipeDown, "Swipe Down", "swipe_down"),
+                    Triple(R.id.rowSwipeLeft, "Swipe Left", "swipe_left"),
+                    Triple(R.id.rowSwipeRight, "Swipe Right", "swipe_right")
+                )
+
+                gestures.forEach { (viewId, label, key) ->
+                    val row = findViewById<android.view.View>(viewId)
+                    row.findViewById<TextView>(R.id.tvGestureName).text = label
+                    val spinner = row.findViewById<Spinner>(R.id.spinnerAction)
+                    spinner.setSelection(prefs.getInt(key, 0))
+                    spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                        override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                            prefs.edit().putInt(key, pos).apply()
+                        }
+                        override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+                    }
+                }
+
+                // Overlay permission
+                findViewById<Button>(R.id.btnOverlayPermission).setOnClickListener {
+                    if (!Settings.canDrawOverlays(this)) {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:$packageName")))
+                    }
+                }
+
+                // Accessibility
+                findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+
+                // Toggle service
+                val btnToggle = findViewById<Button>(R.id.btnToggleService)
+                btnToggle.setOnClickListener {
+                    if (OverlayService.isRunning) {
+                        stopService(Intent(this, OverlayService::class.java))
+                        btnToggle.text = "3. BẬT OVERLAY"
+                        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF4CAF50.toInt())
+                    } else {
+                        startForegroundService(Intent(this, OverlayService::class.java))
+                        btnToggle.text = "3. TẮT OVERLAY"
+                        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFF44336.toInt())
+                    }
+                }
+            }
+
+            override fun onResume() {
+                super.onResume()
+                val btnToggle = findViewById<Button>(R.id.btnToggleService)
+                if (OverlayService.isRunning) {
+                    btnToggle.text = "3. TẮT OVERLAY"
+                    btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFF44336.toInt())
+                }
+            }
+        }
+        EOF
+
+        # OverlayService.kt
+        cat > app/src/main/java/com/lockgesture/OverlayService.kt << 'EOF'
+        package com.lockgesture
+
+        import android.app.*
+        import android.content.Context
+        import android.content.Intent
+        import android.graphics.Color
+        import android.graphics.PixelFormat
+        import android.os.IBinder
+        import android.view.*
+        import android.view.GestureDetector
+        import androidx.core.app.NotificationCompat
+
+        class OverlayService : Service() {
+
+            companion object {
+                var isRunning = false
+            }
+
+            private lateinit var windowManager: WindowManager
+            private lateinit var overlayView: View
+            private lateinit var gestureDetector: GestureDetector
+
+            override fun onCreate() {
+                super.onCreate()
+                isRunning = true
+                createNotificationChannel()
+                startForeground(1, buildNotification())
+                setupOverlay()
+            }
+
+            private fun setupOverlay() {
+                windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+                val prefs = getSharedPreferences("gestures", Context.MODE_PRIVATE)
+
+                overlayView = View(this).apply {
+                    setBackgroundColor(Color.TRANSPARENT)
+                }
+
+                gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+
+                    override fun onDoubleTap(e: MotionEvent): Boolean {
+                        Actions.execute(this@OverlayService, prefs.getInt("double_tap", 0))
+                        return true
+                    }
+
+                    override fun onLongPress(e: MotionEvent) {
+                        Actions.execute(this@OverlayService, prefs.getInt("long_press", 0))
+                    }
+
+                    override fun onFling(e1: MotionEvent?, e2: MotionEvent, vX: Float, vY: Float): Boolean {
+                        val dx = e2.x - (e1?.x ?: 0f)
+                        val dy = e2.y - (e1?.y ?: 0f)
+                        if (Math.abs(dx) > Math.abs(dy)) {
+                            if (dx > 0) Actions.execute(this@OverlayService, prefs.getInt("swipe_right", 0))
+                            else Actions.execute(this@OverlayService, prefs.getInt("swipe_left", 0))
+                        } else {
+                            if (dy > 0) Actions.execute(this@OverlayService, prefs.getInt("swipe_down", 0))
+                            else Actions.execute(this@OverlayService, prefs.getInt("swipe_up", 0))
+                        }
+                        return true
+                    }
+                })
+
+                overlayView.setOnTouchListener { v, event ->
+                    gestureDetector.onTouchEvent(event)
+                    true
+                }
+
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    140,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = Gravity.BOTTOM
+                }
+
+                windowManager.addView(overlayView, params)
+            }
+
+            private fun createNotificationChannel() {
+                val channel = NotificationChannel("lockgesture", "LockGesture", NotificationManager.IMPORTANCE_LOW)
+                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+            }
+
+            private fun buildNotification() = NotificationCompat.Builder(this, "lockgesture")
+                .setContentTitle("LockGesture đang chạy")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .build()
+
+            override fun onDestroy() {
+                super.onDestroy()
+                isRunning = false
+                if (::overlayView.isInitialized) windowManager.removeView(overlayView)
+            }
+
+            override fun onBind(intent: Intent?): IBinder? = null
+        }
+        EOF
+
+        # Actions.kt
+        cat > app/src/main/java/com/lockgesture/Actions.kt << 'EOF'
+        package com.lockgesture
+
+        import android.content.Context
+        import android.content.Intent
+        import android.hardware.camera2.CameraManager
+        import android.provider.MediaStore
+
+        object Actions {
+            const val NONE = 0
+            const val SCREEN_OFF = 1
+            const val CAMERA = 2
+            const val FLASH = 3
+
+            private var flashOn = false
+
+            fun execute(context: Context, action: Int) {
+                when (action) {
+                    SCREEN_OFF -> screenOff(context)
+                    CAMERA -> openCamera(context)
+                    FLASH -> toggleFlash(context)
+                }
+            }
+
+            private fun screenOff(context: Context) {
+                GestureAccessibilityService.instance?.performGlobalAction(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
+                )
+            }
+
+            private fun openCamera(context: Context) {
+                val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            }
+
+            private fun toggleFlash(context: Context) {
+                val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                val cameraId = cm.cameraIdList[0]
+                flashOn = !flashOn
+                cm.setTorchMode(cameraId, flashOn)
+            }
+        }
+        EOF
+
+        # GestureAccessibilityService.kt
+        cat > app/src/main/java/com/lockgesture/GestureAccessibilityService.kt << 'EOF'
+        package com.lockgesture
+
+        import android.accessibilityservice.AccessibilityService
+        import android.view.accessibility.AccessibilityEvent
+
+        class GestureAccessibilityService : AccessibilityService() {
+
+            companion object {
+                var instance: GestureAccessibilityService? = null
+            }
+
+            override fun onServiceConnected() {
+                instance = this
+            }
+
+            override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+            override fun onInterrupt() {}
+
+            override fun onDestroy() {
+                super.onDestroy()
+                instance = null
+            }
+        }
+        EOF
+
+        # BootReceiver.kt
+        cat > app/src/main/java/com/lockgesture/BootReceiver.kt << 'EOF'
+        package com.lockgesture
+
+        import android.content.BroadcastReceiver
+        import android.content.Context
+        imp
