@@ -342,6 +342,15 @@ jobs:
 
     - name: Setup Gradle Wrapper
       run: |
+        cat > gradlew << 'GRADLEW'
+        #!/bin/sh
+        exec "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
+        GRADLEW
+        chmod +x gradlew
+        mkdir -p gradle/wrapper
+        wget -q https://services.gradle.org/distributions/gradle-8.4-bin.zip -O /tmp/gradle.zip
+        unzip -q /tmp/gradle.zip -d /opt/gradle
+        export PATH=$PATH:/opt/gradle/gradle-8.4/bin
         gradle wrapper --gradle-version=8.4
         chmod +x gradlew
 
